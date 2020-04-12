@@ -8,13 +8,13 @@ Proxy 可以理解成，在目标对象之前架设一层“拦截”，外界�
 
 ```javascript
 var obj = new Proxy({}, {
-  get: function (target, key, receiver) {
-    console.log(`getting ${key}!`);
-    return Reflect.get(target, key, receiver);
+  get: function (target, propKey, receiver) {
+    console.log(`getting ${propKey}!`);
+    return Reflect.get(target, propKey, receiver);
   },
-  set: function (target, key, value, receiver) {
-    console.log(`setting ${key}!`);
-    return Reflect.set(target, key, value, receiver);
+  set: function (target, propKey, value, receiver) {
+    console.log(`setting ${propKey}!`);
+    return Reflect.set(target, propKey, value, receiver);
   }
 });
 ```
@@ -44,7 +44,7 @@ Proxy 对象的所有用法，都是上面这种形式，不同的只是`handler
 
 ```javascript
 var proxy = new Proxy({}, {
-  get: function(target, property) {
+  get: function(target, propKey) {
     return 35;
   }
 });
@@ -80,7 +80,7 @@ Proxy 实例也可以作为其他对象的原型对象。
 
 ```javascript
 var proxy = new Proxy({}, {
-  get: function(target, property) {
+  get: function(target, propKey) {
     return 35;
   }
 });
@@ -123,13 +123,13 @@ fproxy.foo === "Hello, foo" // true
 
 对于可以设置、但没有设置拦截的操作，则直接落在目标对象上，按照原先的方式产生结果。
 
-下面是 Proxy 支持的拦截操作一览，一共13种。
+下面是 Proxy 支持的拦截操作一览，一共 13 种。
 
 - **get(target, propKey, receiver)**：拦截对象属性的读取，比如`proxy.foo`和`proxy['foo']`。
 - **set(target, propKey, value, receiver)**：拦截对象属性的设置，比如`proxy.foo = v`或`proxy['foo'] = v`，返回一个布尔值。
 - **has(target, propKey)**：拦截`propKey in proxy`的操作，返回一个布尔值。
 - **deleteProperty(target, propKey)**：拦截`delete proxy[propKey]`的操作，返回一个布尔值。
-- **ownKeys(target)**：拦截`Object.getOwnPropertyNames(proxy)`、`Object.getOwnPropertySymbols(proxy)`、`Object.keys(proxy)`，返回一个数组。该方法返回目标对象所有自身的属性的属性名，而`Object.keys()`的返回结果仅包括目标对象自身的可遍历属性。
+- **ownKeys(target)**：拦截`Object.getOwnPropertyNames(proxy)`、`Object.getOwnPropertySymbols(proxy)`、`Object.keys(proxy)`、`for...in`循环，返回一个数组。该方法返回目标对象所有自身的属性的属性名，而`Object.keys()`的返回结果仅包括目标对象自身的可遍历属性。
 - **getOwnPropertyDescriptor(target, propKey)**：拦截`Object.getOwnPropertyDescriptor(proxy, propKey)`，返回属性的描述对象。
 - **defineProperty(target, propKey, propDesc)**：拦截`Object.defineProperty(proxy, propKey, propDesc）`、`Object.defineProperties(proxy, propDescs)`，返回一个布尔值。
 - **preventExtensions(target)**：拦截`Object.preventExtensions(proxy)`，返回一个布尔值。
@@ -145,7 +145,7 @@ fproxy.foo === "Hello, foo" // true
 
 ### get()
 
-`get`方法用于拦截某个属性的读取操作，可以接受三个参数，依次为目标对象、属性名和 proxy 实例本身（即`this`关键字指向的那个对象），其中最后一个参数可选。
+`get`方法用于拦截某个属性的读取操作，可以接受三个参数，依次为目标对象、属性名和 proxy 实例本身（严格地说，是操作行为所针对的对象），其中最后一个参数可选。
 
 `get`方法的用法，上文已经有一个例子，下面是另一个拦截读取操作的例子。
 
@@ -155,11 +155,11 @@ var person = {
 };
 
 var proxy = new Proxy(person, {
-  get: function(target, property) {
-    if (property in target) {
-      return target[property];
+  get: function(target, propKey) {
+    if (propKey in target) {
+      return target[propKey];
     } else {
-      throw new ReferenceError("Property \"" + property + "\" does not exist.");
+      throw new ReferenceError("Prop name \"" + propKey + "\" does not exist.");
     }
   }
 });
@@ -209,29 +209,27 @@ let arr = createArray('a', 'b', 'c');
 arr[-1] // c
 ```
 
-上面代码中，数组的位置参数是`-1`，就会输出数组的倒数最后一个成员。
+上面代码中，数组的位置参数是`-1`，就会输出数组的倒数第一个成员。
 
 利用 Proxy，可以将读取属性的操作（`get`），转变为执行某个函数，从而实现属性的链式操作。
 
 ```javascript
-var pipe = (function () {
-  return function (value) {
-    var funcStack = [];
-    var oproxy = new Proxy({} , {
-      get : function (pipeObject, fnName) {
-        if (fnName === 'get') {
-          return funcStack.reduce(function (val, fn) {
-            return fn(val);
-          },value);
-        }
-        funcStack.push(window[fnName]);
-        return oproxy;
+var pipe = function (value) {
+  var funcStack = [];
+  var oproxy = new Proxy({} , {
+    get : function (pipeObject, fnName) {
+      if (fnName === 'get') {
+        return funcStack.reduce(function (val, fn) {
+          return fn(val);
+        },value);
       }
-    });
+      funcStack.push(window[fnName]);
+      return oproxy;
+    }
+  });
 
-    return oproxy;
-  }
-}());
+  return oproxy;
+}
 
 var double = n => n * 2;
 var pow    = n => n * n;
@@ -277,20 +275,33 @@ const el = dom.div({},
 document.body.appendChild(el);
 ```
 
-下面是一个`get`方法的第三个参数的例子。
+下面是一个`get`方法的第三个参数的例子，它总是指向原始的读操作所在的那个对象，一般情况下就是 Proxy 实例。
 
 ```javascript
 const proxy = new Proxy({}, {
-  get: function(target, property, receiver) {
+  get: function(target, key, receiver) {
     return receiver;
   }
 });
 proxy.getReceiver === proxy // true
 ```
 
-上面代码中，`get`方法的第三个参数`receiver`，总是为当前的 Proxy 实例。
+上面代码中，`proxy`对象的`getReceiver`属性是由`proxy`对象提供的，所以`receiver`指向`proxy`对象。
 
-如果一个属性不可配置（configurable）和不可写（writable），则该属性不能被代理，通过 Proxy 对象访问该属性会报错。
+```javascript
+const proxy = new Proxy({}, {
+  get: function(target, key, receiver) {
+    return receiver;
+  }
+});
+
+const d = Object.create(proxy);
+d.a === d // true
+```
+
+上面代码中，`d`对象本身没有`a`属性，所以读取`d.a`的时候，会去`d`的原型`proxy`对象找。这时，`receiver`就指向`d`，代表原始的读操作所在的那个对象。
+
+如果一个属性不可配置（configurable）且不可写（writable），则 Proxy 不能修改该属性，否则通过 Proxy 对象访问该属性会报错。
 
 ```javascript
 const target = Object.defineProperties({}, {
@@ -317,7 +328,7 @@ proxy.foo
 
 `set`方法用来拦截某个属性的赋值操作，可以接受四个参数，依次为目标对象、属性名、属性值和 Proxy 实例本身，其中最后一个参数可选。
 
-假定`Person`对象有一个`age`属性，该属性应该是一个不大于200的整数，那么可以使用`Proxy`保证`age`的属性值符合要求。
+假定`Person`对象有一个`age`属性，该属性应该是一个不大于 200 的整数，那么可以使用`Proxy`保证`age`的属性值符合要求。
 
 ```javascript
 let validator = {
@@ -331,7 +342,7 @@ let validator = {
       }
     }
 
-    // 对于age以外的属性，直接保存
+    // 对于满足条件的 age 属性以及其他属性，直接保存
     obj[prop] = value;
   }
 };
@@ -389,9 +400,63 @@ proxy.foo = 'bar';
 proxy.foo === proxy // true
 ```
 
-上面代码中，`set`方法的第四个参数`receiver`，总是返回`this`关键字所指向的那个对象，即`proxy`实例本身。
+上面代码中，`set`方法的第四个参数`receiver`，指的是原始的操作行为所在的那个对象，一般情况下是`proxy`实例本身，请看下面的例子。
 
-注意，如果目标对象自身的某个属性，不可写也不可配置，那么`set`不得改变这个属性的值，只能返回同样的值，否则报错。
+```javascript
+const handler = {
+  set: function(obj, prop, value, receiver) {
+    obj[prop] = receiver;
+  }
+};
+const proxy = new Proxy({}, handler);
+const myObj = {};
+Object.setPrototypeOf(myObj, proxy);
+
+myObj.foo = 'bar';
+myObj.foo === myObj // true
+```
+
+上面代码中，设置`myObj.foo`属性的值时，`myObj`并没有`foo`属性，因此引擎会到`myObj`的原型链去找`foo`属性。`myObj`的原型对象`proxy`是一个 Proxy 实例，设置它的`foo`属性会触发`set`方法。这时，第四个参数`receiver`就指向原始赋值行为所在的对象`myObj`。
+
+注意，如果目标对象自身的某个属性，不可写且不可配置，那么`set`方法将不起作用。
+
+```javascript
+const obj = {};
+Object.defineProperty(obj, 'foo', {
+  value: 'bar',
+  writable: false,
+});
+
+const handler = {
+  set: function(obj, prop, value, receiver) {
+    obj[prop] = 'baz';
+  }
+};
+
+const proxy = new Proxy(obj, handler);
+proxy.foo = 'baz';
+proxy.foo // "bar"
+```
+
+上面代码中，`obj.foo`属性不可写，Proxy 对这个属性的`set`代理将不会生效。
+
+注意，严格模式下，`set`代理如果没有返回`true`，就会报错。
+
+```javascript
+'use strict';
+const handler = {
+  set: function(obj, prop, value, receiver) {
+    obj[prop] = receiver;
+    // 无论有没有下面这一行，都会报错
+    return false;
+  }
+};
+const proxy = new Proxy({}, handler);
+proxy.foo = 'bar';
+// TypeError: 'set' on proxy: trap returned falsish for property 'foo'
+```
+
+上面代码中，严格模式下，`set`代理返回`false`或者`undefined`，都会报错。
 
 ### apply()
 
@@ -453,6 +518,8 @@ Reflect.apply(proxy, null, [9, 10]) // 38
 ### has()
 
 `has`方法用来拦截`HasProperty`操作，即判断对象是否具有某个属性时，这个方法会生效。典型的操作就是`in`运算符。
+
+`has`方法可以接受两个参数，分别是目标对象、需查询的属性名。
 
 下面的例子使用`has`方法隐藏某些属性，不被`in`运算符发现。
 
@@ -530,7 +597,7 @@ for (let b in oproxy2) {
 // 99
 ```
 
-上面代码中，`has`拦截只对`in`循环生效，对`for...in`循环不生效，导致不符合要求的属性没有被排除在`for...in`循环之外。
+上面代码中，`has`拦截只对`in`运算符生效，对`for...in`循环不生效，导致不符合要求的属性没有被`for...in`循环所排除。
 
 ### construct()
 
@@ -544,12 +611,11 @@ var handler = {
 };
 ```
 
-`construct`方法可以接受两个参数。
+`construct`方法可以接受三个参数。
 
-- `target`: 目标对象
-- `args`：构建函数的参数对象
-
-下面是一个例子。
+- `target`：目标对象
+- `args`：构造函数的参数对象
+- `newTarget`：创造实例对象时，`new`命令作用的构造函数（下面例子的`p`）
 
 ```javascript
 var p = new Proxy(function () {}, {
@@ -574,6 +640,7 @@ var p = new Proxy(function() {}, {
 });
 
 new p() // 报错
+// Uncaught TypeError: 'construct' on proxy: trap returned non-object ('1')
 ```
 
 ### deleteProperty()
@@ -584,6 +651,7 @@ new p() // 报错
 var handler = {
   deleteProperty (target, key) {
     invariant(key, 'delete');
+    delete target[key];
     return true;
   }
 };
@@ -615,13 +683,12 @@ var handler = {
 };
 var target = {};
 var proxy = new Proxy(target, handler);
-proxy.foo = 'bar'
-// TypeError: proxy defineProperty handler returned false for property '"foo"'
+proxy.foo = 'bar' // 不会生效
 ```
 
-上面代码中，`defineProperty`方法返回`false`，导致添加新属性会抛出错误。
+上面代码中，`defineProperty`方法返回`false`，导致添加新属性总是无效。
 
-注意，如果目标对象不可扩展（extensible），则`defineProperty`不能增加目标对象上不存在的属性，否则会报错。另外，如果目标对象的某个属性不可写（writable）或不可配置（configurable），则`defineProperty`方法不得改变这两个设置。
+注意，如果目标对象不可扩展（non-extensible），则`defineProperty`不能增加目标对象上不存在的属性，否则会报错。另外，如果目标对象的某个属性不可写（writable）或不可配置（configurable），则`defineProperty`方法不得改变这两个设置。
 
 ### getOwnPropertyDescriptor()
 
@@ -672,7 +739,7 @@ Object.getPrototypeOf(p) === proto // true
 
 上面代码中，`getPrototypeOf`方法拦截`Object.getPrototypeOf()`，返回`proto`对象。
 
-注意，`getPrototypeOf`方法的返回值必须是对象或者`null`，否则报错。另外，如果目标对象不可扩展（extensible）， `getPrototypeOf`方法必须返回目标对象的原型对象。
+注意，`getPrototypeOf`方法的返回值必须是对象或者`null`，否则报错。另外，如果目标对象不可扩展（non-extensible）， `getPrototypeOf`方法必须返回目标对象的原型对象。
 
 ### isExtensible()
 
@@ -710,7 +777,8 @@ var p = new Proxy({}, {
   }
 });
 
-Object.isExtensible(p) // 报错
+Object.isExtensible(p)
+// Uncaught TypeError: 'isExtensible' on proxy: trap result does not reflect extensibility of proxy target (which is 'true')
 ```
 
 ### ownKeys()
@@ -720,6 +788,7 @@ Object.isExtensible(p) // 报错
 - `Object.getOwnPropertyNames()`
 - `Object.getOwnPropertySymbols()`
 - `Object.keys()`
+- `for...in`循环
 
 下面是拦截`Object.keys()`的例子。
 
@@ -814,6 +883,23 @@ Object.getOwnPropertyNames(p)
 // [ 'a', 'b', 'c' ]
 ```
 
+`for...in`循环也受到`ownKeys`方法的拦截。
+
+```javascript
+const obj = { hello: 'world' };
+const proxy = new Proxy(obj, {
+  ownKeys: function () {
+    return ['a', 'b'];
+  }
+});
+
+for (let key in proxy) {
+  console.log(key); // 没有任何输出
+}
+```
+
+上面代码中，`ownkeys`指定只返回`a`和`b`属性，由于`obj`没有这两个属性，因此`for...in`循环不会有任何输出。
+
 `ownKeys`方法返回的数组成员，只能是字符串或 Symbol 值。如果有其他类型的值，或者返回的根本不是数组，就会报错。
 
 ```javascript
@@ -853,7 +939,7 @@ Object.getOwnPropertyNames(p)
 
 上面代码中，`obj`对象的`a`属性是不可配置的，这时`ownKeys`方法返回的数组之中，必须包含`a`，否则会报错。
 
-另外，如果目标对象是不可扩展的（non-extensition），这时`ownKeys`方法返回的数组之中，必须包含原对象的所有属性，且不能包含多余的属性，否则报错。
+另外，如果目标对象是不可扩展的（non-extensible），这时`ownKeys`方法返回的数组之中，必须包含原对象的所有属性，且不能包含多余的属性，否则报错。
 
 ```javascript
 var obj = {
@@ -881,13 +967,14 @@ Object.getOwnPropertyNames(p)
 这个方法有一个限制，只有目标对象不可扩展时（即`Object.isExtensible(proxy)`为`false`），`proxy.preventExtensions`才能返回`true`，否则会报错。
 
 ```javascript
-var p = new Proxy({}, {
+var proxy = new Proxy({}, {
   preventExtensions: function(target) {
     return true;
   }
 });
 
-Object.preventExtensions(p) // 报错
+Object.preventExtensions(proxy)
+// Uncaught TypeError: 'preventExtensions' on proxy: trap returned truish but the proxy target is extensible
 ```
 
 上面代码中，`proxy.preventExtensions`方法返回`true`，但这时`Object.isExtensible(proxy)`会返回`true`，因此报错。
@@ -895,7 +982,7 @@ Object.preventExtensions(p) // 报错
 为了防止出现这个问题，通常要在`proxy.preventExtensions`方法里面，调用一次`Object.preventExtensions`。
 
 ```javascript
-var p = new Proxy({}, {
+var proxy = new Proxy({}, {
   preventExtensions: function(target) {
     console.log('called');
     Object.preventExtensions(target);
@@ -903,9 +990,9 @@ var p = new Proxy({}, {
   }
 });
 
-Object.preventExtensions(p)
+Object.preventExtensions(proxy)
 // "called"
-// true
+// Proxy {}
 ```
 
 ### setPrototypeOf()
@@ -929,7 +1016,7 @@ Object.setPrototypeOf(proxy, proto);
 
 上面代码中，只要修改`target`的原型对象，就会报错。
 
-注意，该方法只能返回布尔值，否则会被自动转为布尔值。另外，如果目标对象不可扩展（extensible），`setPrototypeOf`方法不得改变目标对象的原型。
+注意，该方法只能返回布尔值，否则会被自动转为布尔值。另外，如果目标对象不可扩展（non-extensible），`setPrototypeOf`方法不得改变目标对象的原型。
 
 ## Proxy.revocable()
 
@@ -1042,11 +1129,10 @@ service.employees().then(json => {
 function createWebService(baseUrl) {
   return new Proxy({}, {
     get(target, propKey, receiver) {
-      return () => httpGet(baseUrl+'/' + propKey);
+      return () => httpGet(baseUrl + '/' + propKey);
     }
   });
 }
 ```
 
 同理，Proxy 也可以用来实现数据库的 ORM 层。
-
